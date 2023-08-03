@@ -29,6 +29,7 @@
 #include "hw/loongarch/loongarch.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bridge.h"
+#include "hw/pci-host/gpex.h"
 #include "sysemu/reset.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/arch_init.h"
@@ -133,7 +134,7 @@ typedef struct ResetData {
     uint64_t vector;
 } ResetData;
 
-#define BOOTPARAM_PHYADDR ((0x4f << 20))
+#define BOOTPARAM_PHYADDR ((0x1e << 24))
 #define BOOTPARAM_ADDR (0xa0000000UL + BOOTPARAM_PHYADDR)
 
 /* should set argc,argv */
@@ -166,7 +167,7 @@ static int set_bootparam(ram_addr_t initrd_offset, long initrd_size)
     if (initrd_size > 0) {
         ret += 1 + snprintf(params_buf + ret, 256 - ret, "rd_start=0x"
                 TARGET_FMT_lx " rd_size=%li %s",
-                PHYS_TO_VIRT((uint32_t)initrd_offset),
+                ((uint32_t)initrd_offset + (uint32_t)0xa0000000),
                 initrd_size, loaderparams.kernel_cmdline);
     } else {
         ret += 1 + snprintf(params_buf + ret, 256 - ret,
@@ -538,7 +539,7 @@ static void ls3a5k32_machine_init(MachineClass *mc)
     mc->desc = "ls3a32 test platform";
     mc->init = loongson32_init;
     mc->max_cpus = 32;
-    mc->block_default_type = IF_IDE;
+    mc->block_default_type = IF_MTD;
     mc->default_cpu_type = LOONGARCH_CPU_TYPE_NAME("la32");
     setenv("has_nodecounter", "1", 1);
     mc->cpu_index_to_instance_props = ls3a_cpu_index_to_props;
