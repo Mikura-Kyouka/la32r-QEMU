@@ -55,6 +55,9 @@
 #include <stddef.h>
 #include <sys/time.h>
 #include <time.h>
+
+#define APBBASE 0x1fe20000
+
 #if defined(TARGET_LOONGARCH32)
 uint64_t cpu_la32_KPn_to_phys(void *opaque, uint64_t addr)
 {
@@ -456,12 +459,28 @@ static void loongson32_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(dev), 0, qdev_get_gpio_in(cpudev, 2));
     }
 
-        /*
-         * FIXME: la32_soc's real network card is
-         * not synopgmac, but the real one
-         * is not supported by qemu currently, enable synopgmac
-         * here for only qemu network temporarily.
-         */
+#if 1
+    /* init SD card  */
+    {
+        DriveInfo *dinfo;
+        dinfo = drive_get(IF_SD, 0, 0);
+        if (!dinfo) {
+            fprintf(stderr, "qemu: missing SecureDigital device\n");
+            exit(1);
+        }
+
+        ls1gpa_mmci_init(address_space_mem, APBBASE + 0xc000,
+                 blk_by_legacy_dinfo(dinfo),
+                 qdev_get_gpio_in(cpudev, 4));
+    }
+#endif
+
+    /*
+     * FIXME: la32_soc's real network card is
+     * not synopgmac, but the real one
+     * is not supported by qemu currently, enable synopgmac
+     * here for only qemu network temporarily.
+     */
     {
         MemoryRegion *iomem = g_new(MemoryRegion, 1);
         memory_region_init_io(iomem, NULL, &la32_qemu_ops,
@@ -539,7 +558,7 @@ static void ls3a5k32_machine_init(MachineClass *mc)
     mc->desc = "ls3a32 test platform";
     mc->init = loongson32_init;
     mc->max_cpus = 32;
-    mc->block_default_type = IF_MTD;
+    mc->block_default_type = IF_SD;
     mc->default_cpu_type = LOONGARCH_CPU_TYPE_NAME("la32");
     setenv("has_nodecounter", "1", 1);
     mc->cpu_index_to_instance_props = ls3a_cpu_index_to_props;

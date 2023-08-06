@@ -34,3 +34,8 @@ config LOONGARCH32
     select SERIAL_ISA
     select VIRTIO_PCI
     select SMBIOS
+    select LA32_MMCI
+
+config LA32_MMCI
+    bool
+    select SD
