@@ -15,6 +15,10 @@
  * for more details.
  */
 
+#include "qemu/osdep.h"
+#include "qemu-common.h"
+#include "qemu/ctype.h"
+#include "qemu/cutils.h"
 #include "qemu/datadir.h"
 #include "qemu/osdep.h"
 #include "qapi/error.h"
@@ -60,7 +64,7 @@
 #define APBBASE 0x1fe20000
 
 #if defined(TARGET_LOONGARCH32)
-uint64_t cpu_la32_KPn_to_phys(void *opaque, uint64_t addr)
+static uint64_t cpu_la32_KPn_to_phys(void *opaque, uint64_t addr)
 {
      return addr & 0x1fffffffUL;
 }
@@ -209,14 +213,15 @@ static int set_bootparam(ram_addr_t initrd_offset, long initrd_size)
 
 static int64_t load_kernel(void)
 {
-    int64_t entry, kernel_low, kernel_high;
-    long kernel_size, initrd_size;
+    int64_t entry, kernel_low;
+    uint64_t kernel_high, initrd_size;
+    ssize_t kernel_size;
     ram_addr_t initrd_offset;
 
     if (getenv("BOOTROM")) {
+        qemu_strtoul(getenv("BOOTROM"), 0, 0, &kernel_high);
         kernel_size = load_image_targphys(loaderparams.kernel_filename,
-                (kernel_high = qemu_strtoul(getenv("BOOTROM"), 0, 0)),
-                loaderparams.ram_size);
+                kernel_high, loaderparams.ram_size);
         /*qemu_get_ram_ptr*/
         kernel_high += kernel_size;
         entry = 0;
@@ -251,7 +256,7 @@ static int64_t load_kernel(void)
                 exit(1);
             }
             if (getenv("INITRD_OFFSET")) {
-                initrd_offset = qemu_strtoul(getenv("INITRD_OFFSET"), 0, 0);
+                qemu_strtoul(getenv("INITRD_OFFSET"), 0, 0, &initrd_size);
             }
             initrd_size = load_image_targphys(loaderparams.initrd_filename,
                     initrd_offset, loaderparams.ram_size - initrd_offset);
@@ -408,10 +413,13 @@ static void loongson32_init(MachineState *machine)
     {
         uint64_t nm_size = ns->nodes[1].node_mem;
         char name[32];
+        MemoryRegion *spi_flash = g_new(MemoryRegion, 1);
+
         sprintf(name, "%s\n", "la32.bootrom");
 
         memory_region_init_rom(rams[1], NULL, name, nm_size, &error_fatal);
-        memory_region_add_subregion(address_space_mem, LA_BIOS_BASE, rams[1]);
+        memory_region_init_alias(spi_flash, NULL, "spi_flash", rams[1], 0, nm_size);
+        memory_region_add_subregion(address_space_mem, LA_BIOS_BASE, spi_flash);
     }
     /* Other nodes */
     {
@@ -520,7 +528,7 @@ static void loongson32_init(MachineState *machine)
     g_free(reset_info);
 }
 
-CpuInstanceProperties
+static CpuInstanceProperties
 ls3a_cpu_index_to_props(MachineState *ms, unsigned cpu_index)
 {
     MachineClass *mc = MACHINE_GET_CLASS(ms);
@@ -530,7 +538,7 @@ ls3a_cpu_index_to_props(MachineState *ms, unsigned cpu_index)
     return possible_cpus->cpus[cpu_index].props;
 }
 
-int64_t ls3a_get_default_cpu_node_id(const MachineState *ms, int idx)
+static int64_t ls3a_get_default_cpu_node_id(const MachineState *ms, int idx)
 {
     MachineClass *mc = MACHINE_GET_CLASS(ms);
     CPUArchIdList *possible_cpus = mc->possible_cpu_arch_ids(ms);
