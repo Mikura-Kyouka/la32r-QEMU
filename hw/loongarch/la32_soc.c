@@ -16,6 +16,11 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu-common.h"
+#include "qemu/ctype.h"
+#include "qemu/cutils.h"
+#include "qemu/datadir.h"
+#include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/hw.h"
 #include "hw/i386/pc.h"
@@ -59,7 +64,7 @@
 #define APBBASE 0x1fe20000
 
 #if defined(TARGET_LOONGARCH32)
-uint64_t cpu_la32_KPn_to_phys(void *opaque, uint64_t addr)
+static uint64_t cpu_la32_KPn_to_phys(void *opaque, uint64_t addr)
 {
      return addr & 0x1fffffffUL;
 }
@@ -137,7 +142,7 @@ typedef struct ResetData {
     uint64_t vector;
 } ResetData;
 
-#define BOOTPARAM_PHYADDR ((0x1e << 24))
+#define BOOTPARAM_PHYADDR ((0x4f << 20))
 #define BOOTPARAM_ADDR (0xa0000000UL + BOOTPARAM_PHYADDR)
 
 /* should set argc,argv */
@@ -208,14 +213,15 @@ static int set_bootparam(ram_addr_t initrd_offset, long initrd_size)
 
 static int64_t load_kernel(void)
 {
-    int64_t entry, kernel_low, kernel_high;
-    long kernel_size, initrd_size;
+    int64_t entry, kernel_low;
+    uint64_t kernel_high, initrd_size;
+    ssize_t kernel_size;
     ram_addr_t initrd_offset;
 
     if (getenv("BOOTROM")) {
+        qemu_strtoul(getenv("BOOTROM"), 0, 0, &kernel_high);
         kernel_size = load_image_targphys(loaderparams.kernel_filename,
-                (kernel_high = qemu_strtoul(getenv("BOOTROM"), 0, 0)),
-                loaderparams.ram_size);
+                kernel_high, loaderparams.ram_size);
         /*qemu_get_ram_ptr*/
         kernel_high += kernel_size;
         entry = 0;
@@ -250,7 +256,7 @@ static int64_t load_kernel(void)
                 exit(1);
             }
             if (getenv("INITRD_OFFSET")) {
-                initrd_offset = qemu_strtoul(getenv("INITRD_OFFSET"), 0, 0);
+                qemu_strtoul(getenv("INITRD_OFFSET"), 0, 0, &initrd_size);
             }
             initrd_size = load_image_targphys(loaderparams.initrd_filename,
                     initrd_offset, loaderparams.ram_size - initrd_offset);
@@ -281,9 +287,15 @@ static void main_cpu_reset(void *opaque)
      * TODO:
      * now we use these code to set PG mode before enter system
      */
-    env->CSR_DMW[0] = 0xa0000011;
-    env->CSR_DMW[1] = 0x80000011;
-    env->CSR_CRMD   = 0xb0;
+    if (s->vector == 0x1c000000) {
+        env->CSR_DMW[0] = 0x0;
+        env->CSR_DMW[1] = 0x0;
+        env->CSR_CRMD   = 0x8;
+    } else {
+        env->CSR_DMW[0] = 0xa0000011;
+        env->CSR_DMW[1] = 0x80000011;
+        env->CSR_CRMD   = 0xb0;
+    }
 }
 
 static CPULoongArchState *mycpu[MAX_CORES];
@@ -334,7 +346,8 @@ static void loongson32_init(MachineState *machine)
     int i;
     struct NumaState *ns = machine->numa_state;
     int ls3a_num_nodes;
-
+    char *filename;
+    int bios_size;
     /*
      * Loongisa kernel treats smp-16 as 4 nodes, so we have to
      * init node-related memory ops
@@ -353,7 +366,8 @@ static void loongson32_init(MachineState *machine)
     reset_info = g_malloc0(sizeof(ResetData *) * machine->smp.cpus);
     /* One node default */
     if (ns->num_nodes == 0) {
-        ns->num_nodes = 1;
+        ns->num_nodes = 2;
+        ns->nodes[1].node_mem = LA_BIOS_SIZE;
         ns->nodes[0].node_mem = ram_size;
     }
 
@@ -395,9 +409,21 @@ static void loongson32_init(MachineState *machine)
                 ram0_size, &error_fatal);
         memory_region_add_subregion(address_space_mem, 0x0, ram);
     }
+    /* Node 1 - boot rom */
+    {
+        uint64_t nm_size = ns->nodes[1].node_mem;
+        char name[32];
+        MemoryRegion *spi_flash = g_new(MemoryRegion, 1);
+
+        sprintf(name, "%s\n", "la32.bootrom");
+
+        memory_region_init_rom(rams[1], NULL, name, nm_size, &error_fatal);
+        memory_region_init_alias(spi_flash, NULL, "spi_flash", rams[1], 0, nm_size);
+        memory_region_add_subregion(address_space_mem, LA_BIOS_BASE, spi_flash);
+    }
     /* Other nodes */
     {
-        for (i = 1; i < ns->num_nodes; i++) {
+        for (i = 2; i < ns->num_nodes; i++) {
             rams[i] = g_new(MemoryRegion, 1);
             MemoryRegion *ram1 = g_new(MemoryRegion, 1);
             hwaddr off = ((hwaddr)i << 44);
@@ -418,7 +444,17 @@ static void loongson32_init(MachineState *machine)
             MIN(ram_size, 0x10000000));
     memory_region_add_subregion(iomem_root, 0, ram2);
 
-
+    /* load the BIOS image. */
+    filename = qemu_find_file(QEMU_FILE_TYPE_BIOS,
+                              machine->firmware ?: "none");
+    printf("bios filename: %s\n", filename);
+    if (filename) {
+        bios_size = load_image_targphys(filename, LA_BIOS_BASE, LA_BIOS_SIZE);
+        printf("bios_size: %d\n", bios_size);
+        g_free(filename);
+    } else {
+        bios_size = -1;
+    }
 
     /*
      * Try to load a BIOS image. If this fails, we continue regardless,
@@ -434,11 +470,6 @@ static void loongson32_init(MachineState *machine)
         loaderparams.numa = ns;
         reset_info[0]->vector = load_kernel() ? : reset_info[0]->vector;
     }
-
-    /* todo: */
-    env->CSR_DMW[0] = 0xa0000011;
-    env->CSR_DMW[1] = 0x80000011;
-    env->CSR_CRMD   = 0xb0;
 
     DeviceState *cpudev = DEVICE(qemu_get_cpu(0));
     serial_mm_init(address_space_mem, 0x1fe001e0, 0,
@@ -497,7 +528,7 @@ static void loongson32_init(MachineState *machine)
     g_free(reset_info);
 }
 
-CpuInstanceProperties
+static CpuInstanceProperties
 ls3a_cpu_index_to_props(MachineState *ms, unsigned cpu_index)
 {
     MachineClass *mc = MACHINE_GET_CLASS(ms);
@@ -507,7 +538,7 @@ ls3a_cpu_index_to_props(MachineState *ms, unsigned cpu_index)
     return possible_cpus->cpus[cpu_index].props;
 }
 
-int64_t ls3a_get_default_cpu_node_id(const MachineState *ms, int idx)
+static int64_t ls3a_get_default_cpu_node_id(const MachineState *ms, int idx)
 {
     MachineClass *mc = MACHINE_GET_CLASS(ms);
     CPUArchIdList *possible_cpus = mc->possible_cpu_arch_ids(ms);
