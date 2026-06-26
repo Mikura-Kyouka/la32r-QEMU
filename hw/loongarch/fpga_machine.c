@@ -15,6 +15,7 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "hw/boards.h"
+#include "elf.h"
 #include "hw/loader.h"
 #include "hw/qdev-properties.h"
 #include "hw/qdev-properties-system.h"
