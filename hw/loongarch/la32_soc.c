@@ -47,6 +47,7 @@
 #include "sysemu/blockdev.h"
 #include "exec/address-spaces.h"
 #include "hw/sysbus.h"             /* SysBusDevice */
+#include "hw/sd/la32_mmci.h"
 #include "qemu/host-utils.h"
 #include "sysemu/qtest.h"
 #include "qemu/error-report.h"
