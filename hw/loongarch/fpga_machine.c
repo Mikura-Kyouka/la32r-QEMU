@@ -204,10 +204,6 @@ static void la32_cpu_set_irq(void *opaque, int irq, int level)
     }
 }
 
-static uint64_t cpu_la32_KPn_to_phys(void *opaque, uint64_t addr)
-{
-    return addr & 0x1fffffffUL;
-}
 
 typedef struct FpgaResetData {
     LoongArchCPU *cpu;
@@ -223,18 +219,12 @@ static void fpga_main_cpu_reset(void *opaque)
     env->pc = s->vector;
 
     /*
-     * After cpu_reset, CSR_CRMD has DA=1, PG=0 — direct address mode,
-     * meaning VA == PA. No DMW configuration needed.
-     * For kernel ELF boot, configure DMW windows to map the
-     * kernel's expected virtual address space to physical 0x80000000.
+     * The FPGA board has a flat physical memory model with no virtual
+     * memory. Use direct address mode (DA=1, PG=0) so VA==PA for all
+     * accesses, including the UART at 0xBFD003FC.
+     * CRMD=0xa8: DA=1, PG=0, DATF=1, DATM=1, PLV=0, IE=0.
      */
-    if (s->vector != FPGA_BASERAM_BASE) {
-        /* Kernel boot: set up DMW to map VA 0x80000000..0x9fffffff
-         * and 0xa0000000..0xbfffffff to PA 0x80000000..0x9fffffff */
-        env->CSR_DMW[0] = 0xa8000011;
-        env->CSR_DMW[1] = 0x88000011;
-        env->CSR_CRMD   = 0xb0;
-    }
+    env->CSR_CRMD = 0xa8;
 }
 
 static int64_t fpga_load_kernel(MachineState *machine)
@@ -253,8 +243,10 @@ static int64_t fpga_load_kernel(MachineState *machine)
         return 0;  /* use default reset vector */
     }
 
+    /* FPGA machine runs in direct address mode (VA==PA).
+     * Pass NULL for translate_fn so ELF vaddr is used as paddr directly. */
     kernel_size = load_elf(kernel_filename, NULL,
-                           cpu_la32_KPn_to_phys, NULL,
+                           NULL, NULL,
                            (uint64_t *)&entry, (uint64_t *)&kernel_low,
                            (uint64_t *)&kernel_high, NULL, 0,
                            EM_LOONGARCH, 1, 0);
