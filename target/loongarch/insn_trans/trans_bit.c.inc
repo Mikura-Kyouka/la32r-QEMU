@@ -18,8 +18,22 @@ static bool gen_rr(DisasContext *ctx, arg_rr *a,
 
 static void gen_bytepick_w(TCGv dest, TCGv src1, TCGv src2, target_long sa)
 {
+#ifdef TARGET_LOONGARCH32
+    if (sa == 0) {
+        tcg_gen_mov_tl(dest, src2);
+    } else if (sa == 4) {
+        tcg_gen_mov_tl(dest, src1);
+    } else {
+        TCGv t = tcg_temp_new();
+        tcg_gen_shli_tl(t, src1, sa * 8);
+        tcg_gen_shri_tl(dest, src2, (4 - sa) * 8);
+        tcg_gen_or_tl(dest, dest, t);
+        tcg_temp_free(t);
+    }
+#else
     tcg_gen_concat_tl_i64(dest, src1, src2);
     tcg_gen_sextract_i64(dest, dest, (32 - sa * 8), 32);
+#endif
 }
 
 static void gen_bytepick_d(TCGv dest, TCGv src1, TCGv src2, target_long sa)
