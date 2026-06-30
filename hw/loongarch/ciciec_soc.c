@@ -76,22 +76,28 @@ static int64_t ciciec_load_kernel(MachineState *machine)
     uint64_t kernel_high;
     ssize_t kernel_size;
 
-    /*
-     * Pass NULL for translate_fn so ELF vaddr is used directly as paddr.
-     * CPU starts in direct address mode (VA==PA).
-     */
+    /* Try ELF first */
     kernel_size = load_elf(kernel_filename, NULL,
                            NULL, NULL,
                            (uint64_t *)&entry, (uint64_t *)&kernel_low,
                            (uint64_t *)&kernel_high, NULL, 0,
                            EM_LOONGARCH, 1, 0);
+    if (kernel_size > 0) {
+        return entry;
+    }
+
+    /* Fallback: load as raw binary at SRAM base */
+    kernel_size = load_image_targphys(kernel_filename,
+                                      CICIEC_SRAM_BASE,
+                                      CICIEC_SRAM_SIZE);
     if (kernel_size < 0) {
         fprintf(stderr, "qemu: could not load kernel '%s'\n",
                 kernel_filename);
         exit(1);
     }
 
-    return entry;
+    /* Raw binary loads at default reset vector, return 0 to keep default */
+    return 0;
 }
 
 static void ciciec_soc_init(MachineState *machine)
