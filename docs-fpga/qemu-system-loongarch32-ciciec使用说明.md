@@ -4,13 +4,13 @@
 
 `ciciec_soc` 是 QEMU LA32R 分支中新增的机器类型，模拟 Ciciec2026 的 SoC。
 
-该机器仅包含运行 bare-metal 程序所需的最基本外设：SRAM 和 16550 UART。适用于 SDK 中 `ciciec2026_loongson_preliminary/sdk/software/examples/` 下的测试程序。
+该机器仅包含运行 bare-metal 程序所需的最基本外设：SRAM 和 16550 UART。
 
 ## 内存布局
 
 | 起始地址 | 大小 | 用途 |
 |-----------|------|------|
-| `0x1c000000` | 1 MB | SRAM（覆盖 linker script 中的 isram 512KB + dsram 512KB） |
+| `0x1c000000` | 8 MB | SRAM |
 | `0x1f000000` | 8 B | 16550 UART 寄存器 |
 
 ## 地址翻译
@@ -38,10 +38,27 @@ make -j$(nproc)
 
 ## 运行
 
+`-kernel` 支持 ELF 和 raw binary 两种格式，先尝试 ELF 解析，失败后作为 raw binary 加载到 SRAM 基址 0x1c000000。
+
 ```bash
+# 基本运行
 ./build/qemu-system-loongarch32 -M ciciec_soc \
     -kernel /path/to/program.elf \
     -serial mon:stdio -nographic
+
+# raw binary
+./build/qemu-system-loongarch32 -M ciciec_soc \
+    -kernel /path/to/program.bin \
+    -serial mon:stdio -nographic
+
+# 配合 Term 程序实现双向交互（Unix socket）
+./build/qemu-system-loongarch32 -M ciciec_soc \
+    -kernel /path/to/kernel.elf \
+    -serial unix:/tmp/ciciec-serial.sock,server=on,wait=on \
+    -nographic -monitor none &
+    
+# 桥接到 TCP 供 Term 程序连接
+socat TCP-LISTEN:16666,reuseaddr,fork UNIX-CONNECT:/tmp/ciciec-serial.sock
 ```
 
 ## 16550 UART 寄存器
