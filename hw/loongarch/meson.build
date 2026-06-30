@@ -6,5 +6,6 @@ loongarch_ss.add(when: 'CONFIG_ACPI', if_true: files('acpi-build.c'))
 
 loongarch_ss.add(  files('la32_soc.c'))
 loongarch_ss.add(  files('fpga_machine.c'))
+loongarch_ss.add(  files('ciciec_soc.c'))
 
 hw_arch += {'loongarch': loongarch_ss}
