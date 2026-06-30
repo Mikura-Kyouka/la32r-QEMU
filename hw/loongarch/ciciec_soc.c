@@ -25,7 +25,7 @@
 
 /* SoC physical addresses */
 #define CICIEC_SRAM_BASE  0x1c000000ULL
-#define CICIEC_SRAM_SIZE  (1 * MiB)
+#define CICIEC_SRAM_SIZE  (8 * MiB)
 #define CICIEC_UART_BASE  0x1f000000ULL
 
 static void la32_cpu_set_irq(void *opaque, int irq, int level)
